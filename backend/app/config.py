@@ -19,9 +19,14 @@ class Settings(BaseSettings):
     connector_breaker_threshold: int = 5
     connector_breaker_reset_s: float = 30.0
 
-    # LLM (empty key -> deterministic HeuristicLLM, used by tests/CI)
-    anthropic_api_key: str = ""
-    llm_model: str = "claude-opus-5-5"
+    # LLM via any OpenAI-compatible chat API; default is Groq's free tier.
+    # Empty key -> deterministic HeuristicLLM (used by tests/CI).
+    groq_api_key: str = ""
+    llm_base_url: str = "https://api.groq.com/openai/v1"
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_max_output_tokens: int = 2048
+    llm_max_retries: int = 3
+    llm_backoff_base_s: float = 1.0
 
     # Agent guardrails
     confidence_threshold: float = 0.85

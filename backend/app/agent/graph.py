@@ -80,9 +80,7 @@ def build_graph(
         )
         # Guardrail independent of the model: no retrieved policy means we cannot be confident.
         if not policies and decision.confidence_score > NO_POLICY_CONFIDENCE_CAP:
-            decision = decision.model_copy(
-                update={"confidence_score": NO_POLICY_CONFIDENCE_CAP}
-            )
+            decision = decision.model_copy(update={"confidence_score": NO_POLICY_CONFIDENCE_CAP})
         return {
             "decision": decision,
             "trace": _record(

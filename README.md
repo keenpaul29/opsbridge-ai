@@ -30,6 +30,17 @@ npm run dev                     # http://localhost:3000
 Point a GitHub repo webhook (content type `application/json`, "Issues" events, secret =
 `WEBHOOK_SECRET`) at `POST /webhooks/github`.
 
+## LLM
+
+The agent's `classify` and `propose` steps call an OpenAI-compatible chat API, Groq's free tier by
+default (`openai/gpt-oss-120b`, strict JSON-schema output). Set `GROQ_API_KEY` in `backend/.env`
+to enable it; with no key the offline `HeuristicLLM` runs, which is what tests and CI use.
+`LLM_BASE_URL` and `LLM_MODEL` point it at another OpenAI-compatible provider or model.
+
+Groq's free tier is about 30 requests and 8,000 tokens per minute, so prompts are truncated and
+429s are retried with backoff. If the model output is invalid or the call keeps failing, the
+decision degrades to confidence 0 and the ticket goes to a human.
+
 ## Tests
 
 ```bash
