@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+/* Tokens from DESIGN.md. Light is the primary theme; dark follows the OS. */
+:root {
+  --ground: #e9ecef;
+  --surface: #f6f7f8;
+  --ink: #14181c;
+  --on-ink: #f6f7f8;
+  --rule: #c3c9cf;
+  --muted: #5a646d;
+  --needs-you: #ff5b14;
+  --executed: #0f7b4f;
+  --failed: #c21f3a;
+  --rejected: #5b3a8c;
+  --pending: #7a848e;
+  --confidence: #ffe14d;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ground: #14181c;
+    --surface: #1c2126;
+    --ink: #e9ecef;
+    --on-ink: #14181c;
+    --rule: #3a424a;
+    --muted: #9aa4ad;
+    --executed: #3dc98a;
+    --failed: #ff6b82;
+    --rejected: #b79ae8;
+    --pending: #9aa4ad;
+  }
+}
+
+@theme inline {
+  --color-ground: var(--ground);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-on-ink: var(--on-ink);
+  --color-rule: var(--rule);
+  --color-muted: var(--muted);
+  --color-needs-you: var(--needs-you);
+  --color-executed: var(--executed);
+  --color-failed: var(--failed);
+  --color-rejected: var(--rejected);
+  --color-pending: var(--pending);
+  --color-confidence: var(--confidence);
+  --font-sans: var(--font-instrument-sans);
+  --font-mono: var(--font-jetbrains-mono);
+  --font-stamp: var(--font-barlow-condensed);
+  --radius-*: initial; /* square corners everywhere */
+}
+
+body {
+  background: var(--ground);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.num {
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* Square keys with a hard 2px offset shadow. */
+.key {
+  border: 1px solid var(--ink);
+  background: var(--surface);
+  color: var(--ink);
+  padding: 6px 14px;
+  font-weight: 600;
+  box-shadow: 2px 2px 0 var(--ink);
+  cursor: pointer;
+}
+.key:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+.key:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--needs-you);
+  outline-offset: 2px;
+}
+.key:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.key-primary {
+  background: var(--ink);
+  color: var(--on-ink);
+}
+
+/* Confidence: highlighter bar behind the number. */
+.conf {
+  position: relative;
+  display: inline-block;
+  padding: 0 4px;
+  color: #14181c;
+}
+.conf::before {
+  content: "";
+  position: absolute;
+  inset: 3px 0;
+  width: var(--w, 0);
+  background: var(--confidence);
+  z-index: -1;
+}
+.conf-wrap {
+  isolation: isolate;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .key {
+    transition: transform 100ms ease-out, box-shadow 100ms ease-out;
+  }
+}

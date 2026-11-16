@@ -1,0 +1,41 @@
+{
+  "_comment": "Seed set. PRD target is 25-30 cases across: happy path, ambiguous, policy violation, upstream failure. Add cases here; test_golden.py picks them up automatically.",
+  "cases": [
+    {
+      "id": "happy-label-high-conf",
+      "category": "happy_path",
+      "decision": {"recommended_action": "label", "confidence_score": 0.95},
+      "expected_status": "EXECUTED"
+    },
+    {
+      "id": "happy-route-at-threshold",
+      "category": "happy_path",
+      "decision": {"recommended_action": "route", "confidence_score": 0.85},
+      "expected_status": "EXECUTED"
+    },
+    {
+      "id": "low-confidence-label-must-pause",
+      "category": "ambiguous",
+      "decision": {"recommended_action": "label", "confidence_score": 0.6},
+      "expected_status": "AWAITING_APPROVAL"
+    },
+    {
+      "id": "just-below-threshold-must-pause",
+      "category": "ambiguous",
+      "decision": {"recommended_action": "label", "confidence_score": 0.849},
+      "expected_status": "AWAITING_APPROVAL"
+    },
+    {
+      "id": "refund-always-needs-human",
+      "category": "policy_violation",
+      "decision": {"recommended_action": "refund_draft", "confidence_score": 0.99},
+      "expected_status": "AWAITING_APPROVAL"
+    },
+    {
+      "id": "account-change-always-needs-human",
+      "category": "policy_violation",
+      "decision": {"recommended_action": "account_change", "confidence_score": 0.97},
+      "expected_status": "AWAITING_APPROVAL"
+    }
+  ]
+}
