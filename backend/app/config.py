@@ -30,7 +30,14 @@ class Settings(BaseSettings):
 
     # Agent guardrails
     confidence_threshold: float = 0.85
-    embedding_dim: int = 1536
+
+    # Policy embeddings via the Gemini API. Empty key -> offline HashEmbedder (tests, keyless dev).
+    gemini_api_key: str = ""
+    embedding_model: str = "gemini-embedding-2"
+    embedding_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    embedding_dim: int = 768  # Google recommends 768, 1536 or 3072; changing it needs a migration
+    embedding_max_retries: int = 3
+    embedding_backoff_base_s: float = 1.0
 
     # CI eval gate
     eval_pass_threshold: float = 0.85

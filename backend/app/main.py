@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -8,8 +9,12 @@ from app.api import evals, health, tickets, webhooks
 from app.api.errors import register_error_handlers
 from app.config import get_settings
 from app.connectors.github import GitHubConnector
-from app.db import init_db
+from app.db import SessionLocal, init_db
 from app.logging import configure_logging, request_context_middleware
+from app.rag.embeddings import GeminiEmbedder, make_embedder
+from app.rag.store import ingest_directory
+
+log = logging.getLogger("app")
 
 
 @asynccontextmanager
@@ -17,9 +22,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
     app.state.connector = GitHubConnector(settings)
+    app.state.embedder = embedder = make_embedder(settings)
     await init_db()
+    if isinstance(embedder, GeminiEmbedder):
+        # Never ingest with the hash stand-in: it would overwrite real vectors with noise.
+        try:
+            async with SessionLocal() as session:
+                counts = await ingest_directory(session, embedder)
+            log.info("policies ingested", extra={"status": str(counts)})
+        except Exception:  # noqa: BLE001 - serve with the existing index rather than not start
+            log.exception("policy ingestion failed; serving with the existing index")
     yield
     await app.state.connector.aclose()
+    if isinstance(embedder, GeminiEmbedder):
+        await embedder.aclose()
 
 
 def create_app() -> FastAPI:

@@ -76,7 +76,12 @@ Working: HMAC-verified idempotent webhook ingestion with dead-lettering, retry/b
 breaker connector, ticket state machine + guardrail routing, approve/reject with audit traces,
 console pages, CI.
 
-Still to build: real embeddings and policy ingestion at startup (retrieval is a hash stand-in
-until then), Alembic migrations (tables are created at startup), console authentication and a
+Policy retrieval embeds with Gemini (`gemini-embedding-2`, 768 dims) and ingests `policies/*.md`
+at startup when `GEMINI_API_KEY` is set (get one at https://aistudio.google.com/apikey); without a
+key it falls back to an offline hash embedder whose retrieval is meaningless. Changing
+`EMBEDDING_DIM` needs a table migration; for an existing local database drop the `policy_chunks`
+table (or the `pgdata` volume) once, since tables are only created, never altered.
+
+Still to build: Alembic migrations (tables are created at startup), console authentication and a
 public deployment, recording live model answers for the `needs_llm` eval cases, and the
 case study.
