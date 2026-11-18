@@ -47,7 +47,19 @@ decision degrades to confidence 0 and the ticket goes to a human.
 cd backend
 pytest -m "not eval"   # unit/API tests (no database needed)
 pytest -m eval         # golden-case gate (fails below EVAL_PASS_THRESHOLD)
+python -m scripts.record_eval_run --dry-run   # score the suite; drop --dry-run to write an
+                                              # `eval_runs` row to DATABASE_URL (console eval page)
 ```
+
+The eval suite (`tests/evals/`) runs the real triage pipeline over 20 end-to-end cases
+(`agent_cases.json`: happy path, ambiguous, policy violation, prompt injection, upstream failure)
+plus 6 guardrail boundary cases, and scores pass rate, tool-selection accuracy, policy
+groundedness and p95 latency. Guardrail compliance (a case a human must review is never
+auto-executed) is a hard zero-violation gate. Caveats: retrieval is a lexical stand-in for
+pgvector, and cases without a recorded model answer run on the offline `HeuristicLLM`, so they
+test the pipeline and guardrails, not model judgement. `needs_llm` cases are skipped until
+`GROQ_API_KEY=... python -m scripts.record_eval_llm` records the model's answers into
+`tests/evals/recorded_llm.json`, which CI then replays without a key.
 
 ## Regenerating frontend types
 
@@ -64,7 +76,7 @@ Working: HMAC-verified idempotent webhook ingestion with dead-lettering, retry/b
 breaker connector, ticket state machine + guardrail routing, approve/reject with audit traces,
 console pages, CI.
 
-Stubbed (marked `TODO` in code): LLM-backed `classify`/`propose` nodes, real embeddings and policy
-ingestion wiring in `agent/runner.py`, executing the approved action through the connector,
-Alembic migrations (tables are created at startup), writing `eval_runs` rows from the eval suite,
-and the remaining ~20 golden cases (6 seeded of the 25–30 target).
+Still to build: real embeddings and policy ingestion at startup (retrieval is a hash stand-in
+until then), Alembic migrations (tables are created at startup), console authentication and a
+public deployment, recording live model answers for the `needs_llm` eval cases, and the
+case study.

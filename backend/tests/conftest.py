@@ -24,6 +24,7 @@ class FakeRepo:
     def __init__(self) -> None:
         self.tickets: dict[uuid.UUID, TriageTicket] = {}
         self.trace_log: list[AgentTrace] = []
+        self.eval_runs: list[EvalRun] = []
 
     async def create_if_new(
         self, *, external_event_id: str, provider: str, raw_payload: dict[str, Any]
@@ -95,7 +96,30 @@ class FakeRepo:
         return [t for t in self.trace_log if t.ticket_id == ticket_id]
 
     async def latest_eval_run(self) -> EvalRun | None:
-        return None
+        return self.eval_runs[-1] if self.eval_runs else None
+
+    async def add_eval_run(
+        self,
+        *,
+        git_sha: str,
+        total_cases: int,
+        pass_rate: float,
+        tool_accuracy: float,
+        groundedness_score: float,
+        p95_latency_ms: int,
+    ) -> EvalRun:
+        run = EvalRun(
+            id=uuid.uuid4(),
+            git_sha=git_sha,
+            total_cases=total_cases,
+            pass_rate=pass_rate,
+            tool_accuracy=tool_accuracy,
+            groundedness_score=groundedness_score,
+            p95_latency_ms=p95_latency_ms,
+            created_at=datetime.now(UTC),
+        )
+        self.eval_runs.append(run)
+        return run
 
 
 class FakeConnector:

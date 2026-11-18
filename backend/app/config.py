@@ -34,6 +34,7 @@ class Settings(BaseSettings):
 
     # CI eval gate
     eval_pass_threshold: float = 0.85
+    eval_p95_ms: int = 5000
 
 
 @lru_cache
