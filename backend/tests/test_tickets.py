@@ -158,3 +158,8 @@ async def test_reads_stay_public_when_a_token_is_configured(app, client, repo): 
     assert client.get("/tickets").status_code == 200
     assert client.get(f"/tickets/{tid}").status_code == 200
     assert client.get(f"/tickets/{tid}/traces").status_code == 200
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_unknown_ticket_on_a_write_is_404_not_500(client: TestClient, action: str):
+    assert client.post(f"/tickets/{uuid.uuid4()}/{action}", json={}).status_code == 404

@@ -144,3 +144,36 @@ async def test_hash_embedder_is_deterministic_and_sized():
 def test_make_embedder_picks_gemini_only_with_a_key():
     assert isinstance(make_embedder(settings()), GeminiEmbedder)
     assert isinstance(make_embedder(Settings(_env_file=None, gemini_api_key="")), HashEmbedder)
+
+
+async def test_transport_errors_are_retried():
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] < 2:
+            raise httpx.ConnectError("connection reset")
+        return ok(1)
+
+    assert await embedder(httpx.MockTransport(handler)).embed_query("q")
+    assert calls["n"] == 2
+
+
+async def test_non_numeric_retry_after_falls_back_to_backoff():
+    calls = {"n": 0}
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, headers={"retry-after": "Wed, 21 Oct 2026 07:28:00 GMT"})
+        return ok(1)
+
+    assert await embedder(httpx.MockTransport(handler)).embed_query("q")
+
+
+async def test_short_response_is_an_error_not_silently_zipped():
+    def handler(_: httpx.Request) -> httpx.Response:
+        return ok(1)  # asked for two
+
+    with pytest.raises(EmbeddingError, match="asked for 2"):
+        await embedder(httpx.MockTransport(handler)).embed_documents([("a", "x"), ("b", "y")])
