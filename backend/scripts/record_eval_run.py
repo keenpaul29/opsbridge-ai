@@ -26,17 +26,16 @@ def git_sha() -> str:
         return "unknown"
 
 
-async def main(dry_run: bool) -> int:
+async def main(dry_run: bool) -> None:
     report = await run_suite()
     print(report.summary())
     if dry_run:
-        return 0
+        return
     await init_db()
     async with SessionLocal() as session:
         run = await save_report(SqlTicketRepository(session), report, git_sha())
     print(f"recorded eval run {run.id} @ {run.git_sha}")
-    return 0
 
 
 if __name__ == "__main__":
-    sys.exit(asyncio.run(main("--dry-run" in sys.argv)))
+    asyncio.run(main("--dry-run" in sys.argv))
