@@ -261,7 +261,8 @@ def load_recorded() -> dict[str, Any]:
 
 
 def _settings() -> Settings:
-    return Settings(_env_file=None)
+    # The lexical retriever's scores are on their own scale; the similarity floor is for embeddings.
+    return Settings(_env_file=None, min_policy_score=0.0)
 
 
 def _event(case: dict[str, Any], number: int) -> dict[str, Any]:

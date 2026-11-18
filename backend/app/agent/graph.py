@@ -38,7 +38,10 @@ NO_POLICY_CONFIDENCE_CAP = 0.4
 
 
 def build_graph(
-    retriever: Retriever, fetch_context: ContextFetcher, llm: LLMClient | None = None
+    retriever: Retriever,
+    fetch_context: ContextFetcher,
+    llm: LLMClient | None = None,
+    min_policy_score: float = 0.0,
 ) -> Any:
     llm = llm or HeuristicLLM()
 
@@ -59,10 +62,18 @@ def build_graph(
     async def retrieve_policy(state: TriageState) -> TriageState:
         t = time.perf_counter()
         issue = state["event"].get("issue", {})
-        policies = await retriever(f"{state['intent']}: {issue.get('title', '')}")
+        found = await retriever(f"{state['intent']}: {issue.get('title', '')}")
+        # A weak match is no match: it must not be cited or count toward confidence.
+        policies = [p for p in found if p.score >= min_policy_score]
         return {
             "policies": policies,
-            "trace": _record(state, "retrieve_policy", t, hits=len(policies)),
+            "trace": _record(
+                state,
+                "retrieve_policy",
+                t,
+                hits=len(policies),
+                dropped_below_floor=len(found) - len(policies),
+            ),
         }
 
     async def fetch_live_context(state: TriageState) -> TriageState:

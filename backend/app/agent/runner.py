@@ -39,7 +39,12 @@ async def run_triage(
         live = await connector.get_issue(full_name, issue["number"])
         return live.model_dump()
 
-    graph = build_graph(retriever or _no_policies, fetch_context, llm or make_llm(settings))
+    graph = build_graph(
+        retriever or _no_policies,
+        fetch_context,
+        llm or make_llm(settings),
+        min_policy_score=settings.min_policy_score,
+    )
     try:
         result = await graph.ainvoke({"event": ticket.raw_payload, "trace": []})
     except ConnectorError:

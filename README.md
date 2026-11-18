@@ -85,3 +85,7 @@ table (or the `pgdata` volume) once, since tables are only created, never altere
 Still to build: Alembic migrations (tables are created at startup), console authentication and a
 public deployment, recording live model answers for the `needs_llm` eval cases, and the
 case study.
+
+Retrieved policies scoring below `MIN_POLICY_SCORE` (default 0.5) count as absent: they are not
+cited and cannot lift confidence, so a weak match cannot trigger an auto-approval. The default is
+a placeholder until it is calibrated against real embeddings.

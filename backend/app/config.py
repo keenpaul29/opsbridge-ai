@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     # Agent guardrails
     confidence_threshold: float = 0.85
+    # Retrieved policies scoring below this similarity count as absent, so a weak match can
+    # neither be cited nor lift confidence. Needs calibrating against real embeddings.
+    min_policy_score: float = 0.5
 
     # Policy embeddings via the Gemini API. Empty key -> offline HashEmbedder (tests, keyless dev).
     gemini_api_key: str = ""
