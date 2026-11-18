@@ -37,6 +37,10 @@ default (`openai/gpt-oss-120b`, strict JSON-schema output). Set `GROQ_API_KEY` i
 to enable it; with no key the offline `HeuristicLLM` runs, which is what tests and CI use.
 `LLM_BASE_URL` and `LLM_MODEL` point it at another OpenAI-compatible provider or model.
 
+To try it end to end without a database, run `python -m scripts.groq_smoke` from `backend/`. It
+sends four signed sample webhooks through the real app and model, with the database, GitHub and
+policy retrieval stubbed, and prints how each ticket was routed. It spends free-tier quota.
+
 Groq's free tier is about 30 requests and 8,000 tokens per minute, so prompts are truncated and
 429s are retried with backoff. If the model output is invalid or the call keeps failing, the
 decision degrades to confidence 0 and the ticket goes to a human.

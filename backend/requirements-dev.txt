@@ -1,0 +1,13 @@
+# OpsBridge AI Backend Development Dependencies
+# Generated from pyproject.toml
+
+# Include base requirements
+-r requirements.txt
+
+# Testing
+pytest>=8
+pytest-asyncio>=0.23
+
+# Code Quality
+ruff>=0.6
+mypy>=1.11
