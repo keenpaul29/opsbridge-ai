@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.agent.decisions import approve_ticket, reject_ticket
-from app.api.deps import get_connector
+from app.api.deps import get_connector, require_operator
 from app.connectors.github import GitHubConnector
 from app.models import TicketStatus, TriageTicket
 from app.repository import TicketRepository, get_repository
@@ -51,7 +51,9 @@ async def get_traces(
     return await repo.traces(ticket_id)
 
 
-@router.post("/{ticket_id}/approve", response_model=TicketOut)
+@router.post(
+    "/{ticket_id}/approve", response_model=TicketOut, dependencies=[Depends(require_operator)]
+)
 async def approve(
     ticket_id: uuid.UUID,
     body: ApproveRequest,
@@ -66,7 +68,9 @@ async def approve(
     return outcome.ticket
 
 
-@router.post("/{ticket_id}/reject", response_model=TicketOut)
+@router.post(
+    "/{ticket_id}/reject", response_model=TicketOut, dependencies=[Depends(require_operator)]
+)
 async def reject(
     ticket_id: uuid.UUID,
     body: RejectRequest,

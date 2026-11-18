@@ -1,7 +1,8 @@
+import hmac
 import uuid
 from collections.abc import Awaitable, Callable
 
-from fastapi import Request
+from fastapi import Depends, Header, HTTPException, Request
 
 from app.agent.runner import run_triage
 from app.config import Settings, get_settings
@@ -45,3 +46,21 @@ def get_triage_scheduler(request: Request) -> TriageScheduler:
             )
 
     return _run
+
+
+def require_operator(
+    settings: Settings = Depends(get_settings),
+    authorization: str | None = Header(default=None),
+) -> None:
+    """Gate for state-changing console endpoints; a no-op when no operator token is configured."""
+    if not settings.operator_token:
+        return
+    scheme, _, supplied = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer" or not hmac.compare_digest(
+        supplied.encode(), settings.operator_token.encode()
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="operator token required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )

@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { ApiError, api } from "@/lib/api";
+import { setOperatorToken, useOperatorToken } from "@/lib/operator-token";
 
 export function ApprovalControls({
   ticketId,
@@ -16,6 +17,7 @@ export function ApprovalControls({
   const [draft, setDraft] = useState(JSON.stringify(initialPayload, null, 2));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const token = useOperatorToken();
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -24,7 +26,13 @@ export function ApprovalControls({
       await action();
       router.refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
+      setError(
+        e instanceof ApiError && e.status === 401
+          ? "Operator token missing or wrong. Enter it below and try again."
+          : e instanceof Error
+            ? e.message
+            : "Request failed",
+      );
     } finally {
       setBusy(false);
     }
@@ -40,13 +48,13 @@ export function ApprovalControls({
         return;
       }
     }
-    void run(() => api.approve(ticketId, edited));
+    void run(() => api.approve(ticketId, token, edited));
   }
 
   function reject() {
     const reason = window.prompt("Reason for rejecting?");
     if (reason === null) return;
-    void run(() => api.reject(ticketId, reason));
+    void run(() => api.reject(ticketId, token, reason));
   }
 
   // Keyboard shortcuts: A approve, E edit, R reject (ignored while typing).
@@ -85,6 +93,17 @@ export function ApprovalControls({
         </button>
         <span className="num ml-auto text-xs text-muted">A approve · E edit · R reject</span>
       </div>
+      <label className="flex items-center gap-2 text-xs text-muted">
+        <span className="font-stamp text-xs font-bold uppercase tracking-[0.08em]">Operator token</span>
+        <input
+          type="password"
+          value={token}
+          onChange={(e) => setOperatorToken(e.target.value)}
+          autoComplete="off"
+          className="num w-64 border border-ink bg-ground px-2 py-1 text-ink"
+          aria-label="Operator token"
+        />
+      </label>
       {error && (
         <p role="alert" className="text-failed">
           <b>Error.</b> {error}

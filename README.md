@@ -82,10 +82,14 @@ key it falls back to an offline hash embedder whose retrieval is meaningless. Ch
 `EMBEDDING_DIM` needs a table migration; for an existing local database drop the `policy_chunks`
 table (or the `pgdata` volume) once, since tables are only created, never altered.
 
-Still to build: Alembic migrations (tables are created at startup), console authentication and a
-public deployment, recording live model answers for the `needs_llm` eval cases, and the
+Still to build: Alembic migrations (tables are created at startup), a public deployment, recording live model answers for the `needs_llm` eval cases, and the
 case study.
 
 Retrieved policies scoring below `MIN_POLICY_SCORE` (default 0.5) count as absent: they are not
 cited and cannot lift confidence, so a weak match cannot trigger an auto-approval. The default is
 a placeholder until it is calibrated against real embeddings.
+
+Approve and reject require `Authorization: Bearer <OPERATOR_TOKEN>`; reads (queue, traces, evals)
+stay public so the console can be shown read-only. Set `OPERATOR_TOKEN` on any deployed instance
+(empty disables auth, for local development only) and `CORS_ORIGINS` to the console's origin. The
+console asks for the token and keeps it in `sessionStorage` for the tab only.

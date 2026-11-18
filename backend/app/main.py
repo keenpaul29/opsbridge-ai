@@ -21,6 +21,8 @@ log = logging.getLogger("app")
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging()
     settings = get_settings()
+    if not settings.operator_token:
+        log.warning("OPERATOR_TOKEN not set: approve/reject are unauthenticated (dev only)")
     app.state.connector = GitHubConnector(settings)
     app.state.embedder = embedder = make_embedder(settings)
     await init_db()
@@ -43,7 +45,7 @@ def create_app() -> FastAPI:
     app.middleware("http")(request_context_middleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=[o.strip() for o in get_settings().cors_origins.split(",") if o.strip()],
         allow_methods=["*"],
         allow_headers=["*"],
     )

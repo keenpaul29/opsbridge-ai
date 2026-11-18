@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     # Webhook ingestion
     webhook_secret: str = "change-me"
 
+    # Console writes: approve/reject require `Authorization: Bearer <operator_token>`. Reads stay
+    # public (read-only demo). Empty token = no auth, for local development only.
+    operator_token: str = ""
+    cors_origins: str = "http://localhost:3000"  # comma-separated
+
     # External connector (GitHub Issues)
     github_token: str = ""
     github_api_url: str = "https://api.github.com"
