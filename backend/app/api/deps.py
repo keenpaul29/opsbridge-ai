@@ -54,6 +54,9 @@ def require_operator(
 ) -> None:
     """Gate for state-changing console endpoints; a no-op when no operator token is configured."""
     if not settings.operator_token:
+        if settings.environment == "production":
+            # Fail closed: a deploy that forgot the token must not expose approve/reject.
+            raise HTTPException(status_code=401, detail="operator token not configured")
         return
     scheme, _, supplied = (authorization or "").partition(" ")
     if scheme.lower() != "bearer" or not hmac.compare_digest(

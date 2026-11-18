@@ -84,7 +84,8 @@ Policy retrieval embeds with Gemini (`gemini-embedding-2`, 768 dims) and ingests
 at startup when `GEMINI_API_KEY` is set (get one at https://aistudio.google.com/apikey); without a
 key it falls back to an offline hash embedder whose retrieval is meaningless. Changing
 `EMBEDDING_DIM` needs a table migration; for an existing local database drop the `policy_chunks`
-table (or the `pgdata` volume) once, since tables are only created, never altered.
+table (or the `pgdata` volume) once, since tables are only created, never altered; the app now refuses to start on a mismatched
+column width and says so.
 
 Still to build: Alembic migrations (tables are created at startup), a public deployment, recording live model answers for the `needs_llm` eval cases, and the
 case study.
@@ -95,5 +96,6 @@ a placeholder until it is calibrated against real embeddings.
 
 Approve and reject require `Authorization: Bearer <OPERATOR_TOKEN>`; reads (queue, traces, evals)
 stay public so the console can be shown read-only. Set `OPERATOR_TOKEN` on any deployed instance
-(empty disables auth, for local development only) and `CORS_ORIGINS` to the console's origin. The
+(empty disables auth, for local development only; with `ENVIRONMENT=production` an empty token
+refuses to start and writes fail closed) and `CORS_ORIGINS` to the console's origin. The
 console asks for the token and keeps it in `sessionStorage` for the tab only.

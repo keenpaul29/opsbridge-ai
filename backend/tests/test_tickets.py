@@ -163,3 +163,16 @@ async def test_reads_stay_public_when_a_token_is_configured(app, client, repo): 
 @pytest.mark.parametrize("action", ["approve", "reject"])
 def test_unknown_ticket_on_a_write_is_404_not_500(client: TestClient, action: str):
     assert client.post(f"/tickets/{uuid.uuid4()}/{action}", json={}).status_code == 404
+
+
+async def test_production_without_a_token_fails_closed(app, client, repo):  # type: ignore[no-untyped-def]
+    from app.config import Settings, get_settings
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, webhook_secret="test-secret", environment="production", operator_token=""
+    )
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL)
+    resp = client.post(f"/tickets/{tid}/approve", json={})
+    assert resp.status_code == 401
+    assert (await repo.get(tid)).status == TicketStatus.AWAITING_APPROVAL  # type: ignore[union-attr]
+    assert client.get("/tickets").status_code == 200  # reads stay public

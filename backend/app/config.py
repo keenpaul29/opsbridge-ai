@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     # Webhook ingestion
     webhook_secret: str = "change-me"
 
+    # "production" refuses to run (or accept writes) without an operator token; anything else is a
+    # local/dev instance where an empty token means no auth.
+    environment: str = "development"
+
     # Console writes: approve/reject require `Authorization: Bearer <operator_token>`. Reads stay
     # public (read-only demo). Empty token = no auth, for local development only.
     operator_token: str = ""
