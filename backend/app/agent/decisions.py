@@ -13,14 +13,16 @@ Interface contract
   On failure the status is written before the trace, and no operator trace is written.
 """
 
+import asyncio
 import logging
 import time
 import uuid
+import weakref
 from dataclasses import dataclass
 from typing import Any
 
 from app.agent.actions import execute_action
-from app.connectors.github import ConnectorError, GitHubConnector
+from app.connectors.github import GitHubConnector
 from app.models import TicketStatus, TriageTicket
 from app.repository import TicketRepository
 from app.schemas import TriageDecision
@@ -29,6 +31,18 @@ from app.state_machine import InvalidTransition, assert_transition
 log = logging.getLogger("app.decisions")
 
 AGENT = "agent"
+
+# Serialises decisions per ticket within this process, so a double-click or an approve racing a
+# reject cannot both pass the state check and run the action twice. It does NOT protect across
+# replicas: that needs an atomic claim in the repository (UPDATE ... WHERE status = ...).
+_locks: "weakref.WeakValueDictionary[uuid.UUID, asyncio.Lock]" = weakref.WeakValueDictionary()
+
+
+def _lock_for(ticket_id: uuid.UUID) -> asyncio.Lock:
+    lock = _locks.get(ticket_id)
+    if lock is None:
+        lock = _locks[ticket_id] = asyncio.Lock()
+    return lock
 
 
 class DecisionError(Exception):
@@ -58,21 +72,22 @@ async def approve_ticket(
     edited_payload: dict[str, Any] | None = None,
 ) -> Outcome:
     """Operator approval of a ticket the agent paused for review (AWAITING_APPROVAL)."""
-    ticket = await _load(repo, ticket_id)
-    _require(ticket, TicketStatus.AWAITING_APPROVAL, TicketStatus.EXECUTED)
+    async with _lock_for(ticket_id):
+        ticket = await _load(repo, ticket_id)
+        _require(ticket, TicketStatus.AWAITING_APPROVAL, TicketStatus.EXECUTED)
 
-    recommended = ticket.recommended_action or {}
-    if edited_payload is not None:
-        recommended = {**recommended, "tool_payload": edited_payload}
-    return await _execute(
-        repo,
-        connector,
-        ticket,
-        recommended,
-        operator=operator,
-        persist=recommended if edited_payload is not None else None,
-        edited=edited_payload is not None,
-    )
+        recommended = ticket.recommended_action or {}
+        if edited_payload is not None:
+            recommended = {**recommended, "tool_payload": edited_payload}
+        return await _execute(
+            repo,
+            connector,
+            ticket,
+            recommended,
+            operator=operator,
+            persist=recommended if edited_payload is not None else None,
+            edited=edited_payload is not None,
+        )
 
 
 async def auto_execute(
@@ -82,30 +97,32 @@ async def auto_execute(
     decision: TriageDecision,
 ) -> Outcome:
     """Agent auto-approval of a fresh decision on a PENDING ticket; persists the decision."""
-    ticket = await _load(repo, ticket_id)
-    _require(ticket, TicketStatus.PENDING, TicketStatus.EXECUTED)
-    return await _execute(
-        repo,
-        connector,
-        ticket,
-        decision.model_dump(mode="json"),
-        operator=None,
-        persist=decision.model_dump(mode="json"),
-        confidence=decision.confidence_score,
-    )
+    async with _lock_for(ticket_id):
+        ticket = await _load(repo, ticket_id)
+        _require(ticket, TicketStatus.PENDING, TicketStatus.EXECUTED)
+        return await _execute(
+            repo,
+            connector,
+            ticket,
+            decision.model_dump(mode="json"),
+            operator=None,
+            persist=decision.model_dump(mode="json"),
+            confidence=decision.confidence_score,
+        )
 
 
 async def reject_ticket(
     repo: TicketRepository, ticket_id: uuid.UUID, *, operator: str, reason: str
 ) -> TriageTicket:
-    ticket = await _load(repo, ticket_id)
-    _require(ticket, TicketStatus.AWAITING_APPROVAL, TicketStatus.REJECTED)
-    updated = await repo.set_status(ticket_id, TicketStatus.REJECTED)
-    await repo.add_trace(
-        ticket_id, "operator_reject", input_data={"operator": operator, "reason": reason}
-    )
-    log.info("ticket rejected", extra={"ticket_id": str(ticket_id), "status": "REJECTED"})
-    return updated
+    async with _lock_for(ticket_id):
+        ticket = await _load(repo, ticket_id)
+        _require(ticket, TicketStatus.AWAITING_APPROVAL, TicketStatus.REJECTED)
+        updated = await repo.set_status(ticket_id, TicketStatus.REJECTED)
+        await repo.add_trace(
+            ticket_id, "operator_reject", input_data={"operator": operator, "reason": reason}
+        )
+        log.info("ticket rejected", extra={"ticket_id": str(ticket_id), "status": "REJECTED"})
+        return updated
 
 
 async def _load(repo: TicketRepository, ticket_id: uuid.UUID) -> TriageTicket:
@@ -149,8 +166,8 @@ async def _execute(
             await execute_action(
                 connector, ticket.raw_payload, action, recommended.get("tool_payload") or {}
             )
-        except ConnectorError as exc:
-            error = str(exc)
+        except Exception as exc:  # a connector error or a malformed payload: either way FAILED
+            error = str(exc) or type(exc).__name__
             log.exception("action failed", extra={"ticket_id": str(ticket.id), "status": "FAILED"})
     latency_ms = int((time.perf_counter() - started) * 1000)
     trace_input = {"action": action, "operator": actor}

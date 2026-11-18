@@ -64,3 +64,51 @@ async def test_runner_applies_the_configured_similarity_floor(
     assert ticket is not None and ticket.status == status
     decision: dict[str, Any] = ticket.recommended_action or {}
     assert [c["doc_name"] for c in decision["policy_citations"]] == cited
+
+
+class _BrokenRetrieval(Exception):
+    pass
+
+
+async def test_retrieval_failure_sends_the_ticket_to_a_human_instead_of_stranding_it(
+    repo: FakeRepo,
+):
+    async def failing(_query: str) -> list[PolicyCitation]:
+        raise _BrokenRetrieval("embedding API down")
+
+    ticket = await repo.create_if_new(
+        external_event_id=uuid.uuid4().hex, provider="github", raw_payload=EVENT
+    )
+    assert ticket is not None
+    await run_triage(
+        ticket.id,
+        repo,
+        Connector(),  # type: ignore[arg-type]
+        Settings(_env_file=None, min_policy_score=0.5),
+        retriever=failing,
+    )
+    done = await repo.get(ticket.id)
+    assert done is not None and done.status == TicketStatus.AWAITING_APPROVAL  # not PENDING
+    retrieve = next(t for t in await repo.traces(ticket.id) if t.step_name == "retrieve_policy")
+    assert retrieve.output_data["retrieval_error"] == "_BrokenRetrieval"  # type: ignore[index]
+
+
+async def test_an_unexpected_crash_marks_the_ticket_failed_never_pending(repo: FakeRepo):
+    class CrashingLLM:
+        async def classify(self, title: str, body: str) -> Any:
+            raise RuntimeError("boom")
+
+    ticket = await repo.create_if_new(
+        external_event_id=uuid.uuid4().hex, provider="github", raw_payload=EVENT
+    )
+    assert ticket is not None
+    await run_triage(
+        ticket.id,
+        repo,
+        Connector(),  # type: ignore[arg-type]
+        Settings(_env_file=None),
+        retriever=_retriever,
+        llm=CrashingLLM(),  # type: ignore[arg-type]
+    )
+    done = await repo.get(ticket.id)
+    assert done is not None and done.status == TicketStatus.FAILED

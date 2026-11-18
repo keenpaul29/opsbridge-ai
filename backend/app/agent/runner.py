@@ -51,6 +51,10 @@ async def run_triage(
         log.exception("triage failed", extra={"ticket_id": str(ticket_id), "status": "FAILED"})
         await repo.set_status(ticket_id, TicketStatus.FAILED)
         return
+    except Exception:  # noqa: BLE001 - a ticket must never be left PENDING with no trace
+        log.exception("triage crashed", extra={"ticket_id": str(ticket_id), "status": "FAILED"})
+        await repo.set_status(ticket_id, TicketStatus.FAILED)
+        return
 
     citations = [c.model_dump(mode="json") for c in result.get("policies", [])]
     for entry in result["trace"]:

@@ -1,5 +1,6 @@
 """Behaviour of the decision module through its interface (fake repo + recording connector)."""
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -168,3 +169,50 @@ async def test_reject_is_audited_and_only_from_awaiting(repo: FakeRepo):
     pending = await seed(repo, TicketStatus.PENDING)
     with pytest.raises(NotApprovable):
         await reject_ticket(repo, pending, operator="sam", reason="")
+
+
+class SlowConnector(Connector):
+    """Yields to the loop mid-action, the window a racing second request would slip through."""
+
+    async def post_comment(self, repo: str, number: int, body: str) -> None:
+        await asyncio.sleep(0.01)
+        await super().post_comment(repo, number, body)
+
+
+async def test_double_approve_runs_the_action_once(repo: FakeRepo):
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL, REFUND)
+    conn = SlowConnector()
+    results = await asyncio.gather(
+        approve_ticket(repo, conn, tid, operator="a"),  # type: ignore[arg-type]
+        approve_ticket(repo, conn, tid, operator="b"),  # type: ignore[arg-type]
+        return_exceptions=True,
+    )
+    assert len(conn.comments) == 1
+    assert sum(isinstance(r, NotApprovable) for r in results) == 1
+    assert (await repo.get(tid)).status == TicketStatus.EXECUTED  # type: ignore[union-attr]
+
+
+async def test_approve_racing_reject_leaves_one_consistent_outcome(repo: FakeRepo):
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL, REFUND)
+    conn = SlowConnector()
+    results = await asyncio.gather(
+        approve_ticket(repo, conn, tid, operator="a"),  # type: ignore[arg-type]
+        reject_ticket(repo, tid, operator="b", reason="no"),
+        return_exceptions=True,
+    )
+    assert sum(isinstance(r, NotApprovable) for r in results) == 1
+    final = (await repo.get(tid)).status  # type: ignore[union-attr]
+    # The action ran iff the approval won; a rejected ticket never posts.
+    assert (final == TicketStatus.EXECUTED) == (len(conn.comments) == 1)
+    assert final in (TicketStatus.EXECUTED, TicketStatus.REJECTED)
+
+
+async def test_a_malformed_ticket_payload_fails_the_ticket_instead_of_raising(repo: FakeRepo):
+    ticket = await repo.create_if_new(
+        external_event_id=uuid.uuid4().hex, provider="github", raw_payload={}
+    )
+    assert ticket is not None
+    await repo.set_status(ticket.id, TicketStatus.AWAITING_APPROVAL, recommended_action=REFUND)
+    out = await approve_ticket(repo, Connector(), ticket.id, operator="sam")  # type: ignore[arg-type]
+    assert out.ticket.status == TicketStatus.FAILED
+    assert out.error
