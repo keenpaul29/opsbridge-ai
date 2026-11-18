@@ -36,21 +36,28 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
+// State-changing calls carry the operator token; reads stay public.
+function writeHeaders(token: string): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  return headers;
+}
+
 export const api = {
   listTickets: (status?: TicketStatus) =>
     request<Ticket[]>(`/tickets${status ? `?status=${status}` : ""}`),
   getTicket: (id: string) => request<TicketDetail>(`/tickets/${id}`),
   getTraces: (id: string) => request<Trace[]>(`/tickets/${id}/traces`),
-  approve: (id: string, editedPayload?: Record<string, unknown>) =>
+  approve: (id: string, token: string, editedPayload?: Record<string, unknown>) =>
     request<Ticket>(`/tickets/${id}/approve`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders(token),
       body: JSON.stringify({ edited_payload: editedPayload ?? null }),
     }),
-  reject: (id: string, reason: string) =>
+  reject: (id: string, token: string, reason: string) =>
     request<Ticket>(`/tickets/${id}/reject`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: writeHeaders(token),
       body: JSON.stringify({ reason }),
     }),
   latestEval: () => request<EvalRun>("/evals/latest"),

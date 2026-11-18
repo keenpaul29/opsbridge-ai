@@ -4,7 +4,7 @@ import logging
 import uuid
 from typing import Any
 
-from app.agent.actions import execute_action
+from app.agent.decisions import auto_execute
 from app.agent.graph import Retriever, build_graph
 from app.agent.llm import LLMClient, make_llm
 from app.config import Settings
@@ -39,11 +39,20 @@ async def run_triage(
         live = await connector.get_issue(full_name, issue["number"])
         return live.model_dump()
 
-    graph = build_graph(retriever or _no_policies, fetch_context, llm or make_llm(settings))
+    graph = build_graph(
+        retriever or _no_policies,
+        fetch_context,
+        llm or make_llm(settings),
+        min_policy_score=settings.min_policy_score,
+    )
     try:
         result = await graph.ainvoke({"event": ticket.raw_payload, "trace": []})
     except ConnectorError:
         log.exception("triage failed", extra={"ticket_id": str(ticket_id), "status": "FAILED"})
+        await repo.set_status(ticket_id, TicketStatus.FAILED)
+        return
+    except Exception:  # noqa: BLE001 - a ticket must never be left PENDING with no trace
+        log.exception("triage crashed", extra={"ticket_id": str(ticket_id), "status": "FAILED"})
         await repo.set_status(ticket_id, TicketStatus.FAILED)
         return
 
@@ -60,18 +69,15 @@ async def run_triage(
     decision = result["decision"]
     status = route_decision(decision, settings.confidence_threshold)
     if status == TicketStatus.EXECUTED:
-        # Auto-approved: perform the action now; a failed call must not read as success.
-        try:
-            await execute_action(
-                connector, ticket.raw_payload, decision.recommended_action, decision.tool_payload
-            )
-        except ConnectorError:
-            log.exception("auto-execute failed", extra={"ticket_id": str(ticket_id)})
-            status = TicketStatus.FAILED
-    await repo.set_status(
-        ticket_id,
-        status,
-        recommended_action=decision.model_dump(mode="json"),
-        confidence_score=decision.confidence_score,
-    )
+        # Auto-approved: auto_execute persists the decision and a FAILED status if the action
+        # fails, so a failed call never reads as success.
+        outcome = await auto_execute(repo, connector, ticket_id, decision)
+        status = outcome.ticket.status
+    else:
+        await repo.set_status(
+            ticket_id,
+            status,
+            recommended_action=decision.model_dump(mode="json"),
+            confidence_score=decision.confidence_score,
+        )
     log.info("triage complete", extra={"ticket_id": str(ticket_id), "status": status.value})

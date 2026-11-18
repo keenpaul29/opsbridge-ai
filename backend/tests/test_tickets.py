@@ -114,3 +114,65 @@ async def test_approve_marks_failed_when_connector_errors(app, client: TestClien
     resp = client.post(f"/tickets/{tid}/approve", json={})
     assert resp.status_code == 502
     assert (await repo.get(tid)).status == TicketStatus.FAILED  # type: ignore[union-attr]
+
+
+def _with_token(app, token: str = "s3cret"):  # type: ignore[no-untyped-def]
+    from app.config import Settings, get_settings
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, webhook_secret="test-secret", operator_token=token
+    )
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {},
+        {"Authorization": "Bearer wrong"},
+        {"Authorization": "Basic s3cret"},
+        {"Authorization": "s3cret"},
+    ],
+)
+async def test_writes_need_the_operator_token(app, client, repo, action, headers):  # type: ignore[no-untyped-def]
+    _with_token(app)
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL)
+    resp = client.post(f"/tickets/{tid}/{action}", json={}, headers=headers)
+    assert resp.status_code == 401
+    assert resp.headers["www-authenticate"] == "Bearer"
+    assert (await repo.get(tid)).status == TicketStatus.AWAITING_APPROVAL  # type: ignore[union-attr]
+
+
+async def test_writes_succeed_with_the_operator_token(app, client, repo):  # type: ignore[no-untyped-def]
+    _with_token(app)
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL)
+    resp = client.post(
+        f"/tickets/{tid}/approve", json={}, headers={"Authorization": "Bearer s3cret"}
+    )
+    assert resp.status_code == 200
+
+
+async def test_reads_stay_public_when_a_token_is_configured(app, client, repo):  # type: ignore[no-untyped-def]
+    _with_token(app)
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL)
+    assert client.get("/tickets").status_code == 200
+    assert client.get(f"/tickets/{tid}").status_code == 200
+    assert client.get(f"/tickets/{tid}/traces").status_code == 200
+
+
+@pytest.mark.parametrize("action", ["approve", "reject"])
+def test_unknown_ticket_on_a_write_is_404_not_500(client: TestClient, action: str):
+    assert client.post(f"/tickets/{uuid.uuid4()}/{action}", json={}).status_code == 404
+
+
+async def test_production_without_a_token_fails_closed(app, client, repo):  # type: ignore[no-untyped-def]
+    from app.config import Settings, get_settings
+
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        _env_file=None, webhook_secret="test-secret", environment="production", operator_token=""
+    )
+    tid = await seed(repo, TicketStatus.AWAITING_APPROVAL)
+    resp = client.post(f"/tickets/{tid}/approve", json={})
+    assert resp.status_code == 401
+    assert (await repo.get(tid)).status == TicketStatus.AWAITING_APPROVAL  # type: ignore[union-attr]
+    assert client.get("/tickets").status_code == 200  # reads stay public

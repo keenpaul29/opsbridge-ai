@@ -1,21 +1,32 @@
-"""Ingest backend/policies/*.md into policy_chunks. Run: python -m scripts.ingest_policies"""
+"""Ingest backend/policies/*.md into policy_chunks. Run: python -m scripts.ingest_policies
+
+Needs GEMINI_API_KEY; the offline hash embedder would store meaningless vectors, so it is refused.
+"""
 
 import asyncio
-from pathlib import Path
+import sys
 
+from app.config import get_settings
 from app.db import SessionLocal, init_db
-from app.rag.store import ingest_document
+from app.rag.embeddings import GeminiEmbedder
+from app.rag.store import ingest_directory
 
-POLICY_DIR = Path(__file__).resolve().parent.parent / "policies"
 
-
-async def main() -> None:
-    await init_db()
-    async with SessionLocal() as session:
-        for path in sorted(POLICY_DIR.glob("*.md")):
-            n = await ingest_document(session, path.name, path.read_text(encoding="utf-8"))
-            print(f"{path.name}: {n} chunks")
+async def main() -> int:
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        print("GEMINI_API_KEY is not set; refusing to ingest hash vectors.", file=sys.stderr)
+        return 1
+    embedder = GeminiEmbedder(settings)
+    try:
+        await init_db()
+        async with SessionLocal() as session:
+            for name, n in (await ingest_directory(session, embedder)).items():
+                print(f"{name}: {n} chunks")
+    finally:
+        await embedder.aclose()
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))
