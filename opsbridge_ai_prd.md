@@ -161,21 +161,55 @@ Once deployed and validated, place **OpsBridge AI** at the top of the **Projects
 
 ---
 
-## 9. Candidate Features (proposed, not yet agreed)
+## 9. Agreed Features (2026-11-20)
 
-Ranked by how directly each makes a PRD claim visible in a short demo. The author has not yet confirmed the selection; these are recommendations from a design discussion, not commitments.
+The author chose four features and settled their details. Build order is the order below; each makes a PRD claim visible in a short demo.
 
-| # | Feature | PRD claim it shows | Recommendation |
-| :--- | :--- | :--- | :--- |
-| 1 | **Reject saves as a golden case:** one click turns a rejected ticket into a pre-filled eval case | Measurable reliability | Build first |
-| 2 | **Eval history page:** per-commit pass rate, tool accuracy, groundedness and p95 as a ruled table, failing cases drillable (data already in `eval_runs`) | Measurable reliability | Build |
-| 3 | **Trace tape with citations:** per-step latency; a citation expands to the policy text and similarity score | Grounded decisions | Build |
-| 4 | Keyboard-driven queue (`j/k`, `a`, `r`), sorted by confidence | Human-in-the-loop | Optional |
-| 5 | What-if replay: re-run a stored ticket with a different model, prompt or floor and diff the decisions | Engineering judgement; tunes the floor | Optional |
-| 6 | Live sandbox repo ("open an issue and watch it triage") | Integration resilience | Defer: needs rate limits and abuse handling |
-| 7 | Second provider (Stripe or Shopify test mode) | Integration breadth | Defer |
-| 8 | Slack or GitHub-comment notification when a ticket needs a human | Human-in-the-loop | Defer |
+### 9.1 Trace tape with citations (grounded decisions)
+* The ticket page's step list keeps its layout (step number, latency in the right gutter). Citations become footnote superscripts that expand inline to the document name, similarity score and the exact policy text, in place of the raw JSON shown today.
+* The tape also shows what the guardrails did, from data already stored on the `retrieve_policy` trace: how many policies were dropped below the similarity floor (`dropped_below_floor`) and whether retrieval failed (`retrieval_error`). No backend change is needed.
 
-**Out of scope for now:** per-operator identity (GitHub sign-in), multi-tenant workspaces, a policy editor UI.
+### 9.2 Reject saves as a golden case (measurable reliability)
+* After a reject, the operator can save the ticket as a proposed eval case. The form is prefilled with the issue text and the agent's decision; the operator supplies only the **expected action** (dropdown) and the **expected final status**. Expected policy citations default to "unchanged" and can be refined when the case is reviewed.
+* Cases are stored in the database as **proposed cases**, not written to the repository. A script exports proposals into `tests/evals/agent_cases.json` for the author to review and commit, so a person always stands between an operator's click and the CI merge gate.
 
-**Open decisions for the author:** which of 1-5 to build; whether the first public link is a read-only console over seeded tickets (recommended) or a live sandbox; and who the one real user is (recommended: a repository of the author's own that receives real issues, with an outside user as a stretch).
+### 9.3 Keyboard queue (human-in-the-loop)
+* `j` / `k` move a highlight through the queue and `Enter` opens the ticket. Approve and reject stay on the ticket page, where the policy evidence is on screen; the existing `A` / `E` / `R` keys there are unchanged. Nothing is approved from the list.
+* The queue sorts `AWAITING_APPROVAL` first, lowest confidence first (the tickets that need the most attention), then the rest as before.
+
+### 9.4 What-if replay (engineering judgement; tunes the similarity floor)
+* Re-run a stored ticket with a different **model**, **similarity floor** or **confidence threshold** (the prompt lives in code and is not varied) and show the replayed decision next to the original.
+* A replay works from the stored issue payload, never calls GitHub, never executes an action, never changes the ticket's status or traces, and is not saved.
+
+### 9.5 Access control for the new features
+* Saving a proposed case and running a replay require the operator token (FR-6): a replay spends Groq quota and saving writes to the database. The public view stays read-only.
+
+### 9.6 Not selected, deferred or out of scope
+* **Not selected:** eval history page.
+* **Deferred:** live sandbox repository ("open an issue and watch it triage"; needs rate limits and abuse handling), a second provider (Stripe or Shopify test mode), Slack or GitHub-comment notifications.
+* **Out of scope for now:** per-operator identity (GitHub sign-in), multi-tenant workspaces, a policy editor UI.
+
+### 9.7 Chosen interfaces and decisions (2026-11-20)
+
+**What-if replay (9.4).** A `Replayer` that is given only read-only access: a ticket reader, the retriever and an LLM factory, with no repository, connector or settings object, so it cannot write or call GitHub. `POST /tickets/{id}/replay` (operator token) takes optional `model`, `min_policy_score` and `confidence_threshold` and returns `original`, `replayed`, `changed`, `applied` (the settings actually used and whether the LLM was Groq or the offline heuristic), `cost` (declared: 2 LLM calls, 1 embedding) and `context: stored_payload_only`.
+* Models are limited to a `REPLAY_MODELS` allowlist that defaults to the configured model; other names are a 422.
+* With no Groq key the replay runs on the offline heuristic and says so, ignoring the model override.
+* If the LLM call fails the replay returns a 502, never a low-confidence decision that looks real (a `strict` mode on the LLM client).
+* When only the confidence threshold changes, the stored decision is re-routed with no LLM call (`reran: false`).
+* Replay uses the stored issue payload only. The original run used live GitHub context, so small differences are possible and the result says so.
+* One replay at a time per process (429 when busy), at most one retry per LLM call, and a hard timeout.
+* The decide-then-route step is extracted from `run_triage` into a shared `decide()` that both triage and replay call, so they cannot drift apart.
+
+**Save as golden case (9.2).** A module with two entry points: `propose_case(repo, ticket_id, body)` (operator token; only for a rejected ticket, otherwise 409) and a pure `export_proposals(rows, path)` run by `python -m scripts.export_eval_proposals [--dry-run]`.
+* Table `eval_proposals`. Case id is `rejected-<title slug, 40 chars>-<8 hex of sha256(ticket id)>`, so saving the same ticket twice updates one row and exporting twice changes nothing.
+* The operator supplies the expected action and expected status. Citations default to the documents the agent cited, shown to the operator and editable, because a rejection often means the wrong policy was cited.
+* Issue text is redacted once at save (emails, tokens, long hex strings) and truncated to 2,000 characters; only redacted text is stored. Redaction is best-effort, and the author's review of the git diff is the real gate.
+* The export validates every case with one `validate_case` shared with the eval harness's `load_cases`, appends only ids not already in `agent_cases.json`, leaves existing cases untouched, and writes atomically. `needs_llm` is left false for the author to set at review.
+* Deferred: a console page and API to list, edit or discard proposals.
+
+**Build order:** trace tape, save-as-golden-case, keyboard queue, what-if replay.
+
+### 9.8 Still open
+* Whether the issue text can contain customer data or is only public GitHub issues. The light redaction above assumes public issues and is unconfirmed; customer data would need stricter redaction or no stored body.
+* Whether the first public link is a read-only console over seeded tickets (recommended) or a live sandbox.
+* Who the one real user is, and whether they have agreed to be described in the case study.
