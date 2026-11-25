@@ -11,6 +11,15 @@ class Settings(BaseSettings):
     # Webhook ingestion
     webhook_secret: str = "change-me"
 
+    # "production" refuses to run (or accept writes) without an operator token; anything else is a
+    # local/dev instance where an empty token means no auth.
+    environment: str = "development"
+
+    # Console writes: approve/reject require `Authorization: Bearer <operator_token>`. Reads stay
+    # public (read-only demo). Empty token = no auth, for local development only.
+    operator_token: str = ""
+    cors_origins: str = "http://localhost:3000"  # comma-separated
+
     # External connector (GitHub Issues)
     github_token: str = ""
     github_api_url: str = "https://api.github.com"
@@ -30,10 +39,21 @@ class Settings(BaseSettings):
 
     # Agent guardrails
     confidence_threshold: float = 0.85
-    embedding_dim: int = 1536
+    # Retrieved policies scoring below this similarity count as absent, so a weak match can
+    # neither be cited nor lift confidence. Needs calibrating against real embeddings.
+    min_policy_score: float = 0.5
+
+    # Policy embeddings via the Gemini API. Empty key -> offline HashEmbedder (tests, keyless dev).
+    gemini_api_key: str = ""
+    embedding_model: str = "gemini-embedding-2"
+    embedding_api_url: str = "https://generativelanguage.googleapis.com/v1beta"
+    embedding_dim: int = 768  # Google recommends 768, 1536 or 3072; changing it needs a migration
+    embedding_max_retries: int = 3
+    embedding_backoff_base_s: float = 1.0
 
     # CI eval gate
     eval_pass_threshold: float = 0.85
+    eval_p95_ms: int = 5000
 
 
 @lru_cache

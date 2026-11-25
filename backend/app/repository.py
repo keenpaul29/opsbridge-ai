@@ -45,6 +45,17 @@ class TicketRepository(Protocol):
 
     async def latest_eval_run(self) -> EvalRun | None: ...
 
+    async def add_eval_run(
+        self,
+        *,
+        git_sha: str,
+        total_cases: int,
+        pass_rate: float,
+        tool_accuracy: float,
+        groundedness_score: float,
+        p95_latency_ms: int,
+    ) -> EvalRun: ...
+
 
 class SqlTicketRepository:
     def __init__(self, session: AsyncSession) -> None:
@@ -131,6 +142,29 @@ class SqlTicketRepository:
     async def latest_eval_run(self) -> EvalRun | None:
         stmt = select(EvalRun).order_by(EvalRun.created_at.desc()).limit(1)
         return (await self.session.execute(stmt)).scalar_one_or_none()
+
+    async def add_eval_run(
+        self,
+        *,
+        git_sha: str,
+        total_cases: int,
+        pass_rate: float,
+        tool_accuracy: float,
+        groundedness_score: float,
+        p95_latency_ms: int,
+    ) -> EvalRun:
+        run = EvalRun(
+            git_sha=git_sha,
+            total_cases=total_cases,
+            pass_rate=pass_rate,
+            tool_accuracy=tool_accuracy,
+            groundedness_score=groundedness_score,
+            p95_latency_ms=p95_latency_ms,
+        )
+        self.session.add(run)
+        await self.session.commit()
+        await self.session.refresh(run)  # created_at is a server default
+        return run
 
 
 def get_repository(session: AsyncSession = Depends(get_session)) -> TicketRepository:

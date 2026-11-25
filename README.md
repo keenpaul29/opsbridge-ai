@@ -37,6 +37,10 @@ default (`openai/gpt-oss-120b`, strict JSON-schema output). Set `GROQ_API_KEY` i
 to enable it; with no key the offline `HeuristicLLM` runs, which is what tests and CI use.
 `LLM_BASE_URL` and `LLM_MODEL` point it at another OpenAI-compatible provider or model.
 
+To try it end to end without a database, run `python -m scripts.groq_smoke` from `backend/`. It
+sends four signed sample webhooks through the real app and model, with the database, GitHub and
+policy retrieval stubbed, and prints how each ticket was routed. It spends free-tier quota.
+
 Groq's free tier is about 30 requests and 8,000 tokens per minute, so prompts are truncated and
 429s are retried with backoff. If the model output is invalid or the call keeps failing, the
 decision degrades to confidence 0 and the ticket goes to a human.
@@ -47,7 +51,19 @@ decision degrades to confidence 0 and the ticket goes to a human.
 cd backend
 pytest -m "not eval"   # unit/API tests (no database needed)
 pytest -m eval         # golden-case gate (fails below EVAL_PASS_THRESHOLD)
+python -m scripts.record_eval_run --dry-run   # score the suite; drop --dry-run to write an
+                                              # `eval_runs` row to DATABASE_URL (console eval page)
 ```
+
+The eval suite (`tests/evals/`) runs the real triage pipeline over 20 end-to-end cases
+(`agent_cases.json`: happy path, ambiguous, policy violation, prompt injection, upstream failure)
+plus 6 guardrail boundary cases, and scores pass rate, tool-selection accuracy, policy
+groundedness and p95 latency. Guardrail compliance (a case a human must review is never
+auto-executed) is a hard zero-violation gate. Caveats: retrieval is a lexical stand-in for
+pgvector, and cases without a recorded model answer run on the offline `HeuristicLLM`, so they
+test the pipeline and guardrails, not model judgement. `needs_llm` cases are skipped until
+`GROQ_API_KEY=... python -m scripts.record_eval_llm` records the model's answers into
+`tests/evals/recorded_llm.json`, which CI then replays without a key.
 
 ## Regenerating frontend types
 
@@ -64,7 +80,22 @@ Working: HMAC-verified idempotent webhook ingestion with dead-lettering, retry/b
 breaker connector, ticket state machine + guardrail routing, approve/reject with audit traces,
 console pages, CI.
 
-Stubbed (marked `TODO` in code): LLM-backed `classify`/`propose` nodes, real embeddings and policy
-ingestion wiring in `agent/runner.py`, executing the approved action through the connector,
-Alembic migrations (tables are created at startup), writing `eval_runs` rows from the eval suite,
-and the remaining ~20 golden cases (6 seeded of the 25–30 target).
+Policy retrieval embeds with Gemini (`gemini-embedding-2`, 768 dims) and ingests `policies/*.md`
+at startup when `GEMINI_API_KEY` is set (get one at https://aistudio.google.com/apikey); without a
+key it falls back to an offline hash embedder whose retrieval is meaningless. Changing
+`EMBEDDING_DIM` needs a table migration; for an existing local database drop the `policy_chunks`
+table (or the `pgdata` volume) once, since tables are only created, never altered; the app now refuses to start on a mismatched
+column width and says so.
+
+Still to build: Alembic migrations (tables are created at startup), a public deployment, recording live model answers for the `needs_llm` eval cases, and the
+case study.
+
+Retrieved policies scoring below `MIN_POLICY_SCORE` (default 0.5) count as absent: they are not
+cited and cannot lift confidence, so a weak match cannot trigger an auto-approval. The default is
+a placeholder until it is calibrated against real embeddings.
+
+Approve and reject require `Authorization: Bearer <OPERATOR_TOKEN>`; reads (queue, traces, evals)
+stay public so the console can be shown read-only. Set `OPERATOR_TOKEN` on any deployed instance
+(empty disables auth, for local development only; with `ENVIRONMENT=production` an empty token
+refuses to start and writes fail closed) and `CORS_ORIGINS` to the console's origin. The
+console asks for the token and keeps it in `sessionStorage` for the tab only.

@@ -5,6 +5,7 @@
 injected too.
 """
 
+import logging
 import time
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
@@ -13,6 +14,8 @@ from langgraph.graph import END, StateGraph
 
 from app.agent.llm import Classification, HeuristicLLM, LLMClient
 from app.schemas import PolicyCitation, TriageDecision
+
+log = logging.getLogger("app.agent.graph")
 
 
 class TriageState(TypedDict, total=False):
@@ -38,7 +41,10 @@ NO_POLICY_CONFIDENCE_CAP = 0.4
 
 
 def build_graph(
-    retriever: Retriever, fetch_context: ContextFetcher, llm: LLMClient | None = None
+    retriever: Retriever,
+    fetch_context: ContextFetcher,
+    llm: LLMClient | None = None,
+    min_policy_score: float = 0.0,
 ) -> Any:
     llm = llm or HeuristicLLM()
 
@@ -59,10 +65,25 @@ def build_graph(
     async def retrieve_policy(state: TriageState) -> TriageState:
         t = time.perf_counter()
         issue = state["event"].get("issue", {})
-        policies = await retriever(f"{state['intent']}: {issue.get('title', '')}")
+        retrieval_error: str | None = None
+        try:
+            found = await retriever(f"{state['intent']}: {issue.get('title', '')}")
+        except Exception as exc:  # embedding API, pgvector, dimension mismatch...
+            # No policy means confidence is capped and a human reviews it; never strand the ticket.
+            log.exception("policy retrieval failed; continuing without policies")
+            found, retrieval_error = [], type(exc).__name__
+        # A weak match is no match: it must not be cited or count toward confidence.
+        policies = [p for p in found if p.score >= min_policy_score]
         return {
             "policies": policies,
-            "trace": _record(state, "retrieve_policy", t, hits=len(policies)),
+            "trace": _record(
+                state,
+                "retrieve_policy",
+                t,
+                hits=len(policies),
+                dropped_below_floor=len(found) - len(policies),
+                **({"retrieval_error": retrieval_error} if retrieval_error else {}),
+            ),
         }
 
     async def fetch_live_context(state: TriageState) -> TriageState:
